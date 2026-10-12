@@ -68,6 +68,12 @@ def main():
 
 	import torch
 
+	# fail before the slow model loading if the result can't be saved
+	output = Path(args.output)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	if not os.access(output if output.exists() else output.parent, os.W_OK):
+		sys.exit(f'Cannot write to {output.resolve()} (uid {os.getuid()}), check ownership of the mounted directory')
+
 	device = select_device(args.device)
 	seed = args.seed if args.seed is not None else random.randint(0, 2**32 - 1)
 	# models need dimensions divisible by 8, resize afterwards if adjusted
@@ -98,8 +104,6 @@ def main():
 		from PIL import Image
 		image = image.resize((args.width, args.height), Image.LANCZOS)
 
-	output = Path(args.output)
-	output.parent.mkdir(parents=True, exist_ok=True)
 	if output.suffix.lower() in ('.jpg', '.jpeg'):
 		image.convert('RGB').save(output, quality=95)
 	else:

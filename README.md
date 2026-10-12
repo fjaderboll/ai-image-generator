@@ -1,24 +1,27 @@
 # AI image generator
 A Docker containerized simple tool to generate an image using AI.
+Runs entirely locally no network access is needed at runtime.
+Based on the model [SDXL-Turbo](https://huggingface.co/stabilityai/sdxl-turbo).
 
-Runs entirely locally: the model ([SDXL-Turbo](https://huggingface.co/stabilityai/sdxl-turbo) by default) is bundled in the image, and no network access is needed at runtime.
+| Image tag        | Size   | Runs on                                    |
+| ---------------- | ------ | ------------------------------------------ |
+| `gpu` / `latest` | ~13 GB | NVIDIA GPU (~8 GB VRAM), falls back to CPU |
+| `cpu`            | ~8 GB  | CPU only (~16 GB RAM)                      |
 
-| Image tag | Size | Runs on |
-|---|---|---|
-| `latest` / `gpu` | ~13 GB | NVIDIA GPU (~8 GB VRAM), falls back to CPU |
-| `cpu` | ~8 GB | CPU only (~16 GB RAM) |
-
-On an RTX 4070 Super an 800x600 image takes about 9 seconds, on a 8-core CPU about 40 seconds.
+An 800x600 image takes about 9 seconds on an RTX 4070 Super and
+on a 8-core CPU about 40 seconds.
 
 ## Running
 ```shell
 mkdir output
-docker run --rm --gpus=all -v ./output:/data ghcr.io/fjaderboll/ai-image-generator --prompt "A happy unicorn" --width 800 --height 600
-docker run --rm -v ./output:/data ghcr.io/fjaderboll/ai-image-generator:cpu --prompt "A happy unicorn"
+docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator --prompt "A happy unicorn"
+docker run --rm --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator:cpu --prompt "A happy unicorn" --width 800 --height 600
 
-# write to a specific file, owned by the current user
+# write to a specific file
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator -p "A red fox" -o fox.png
 ```
+
+`--user` makes the generated files owned by you instead of `root`. Create the output directory before running, otherwise Docker creates it owned by `root`.
 
 GPU usage requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
