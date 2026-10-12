@@ -1,0 +1,59 @@
+name: Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: gpu
+            torch_index_url: https://pypi.org/simple
+            tags: |
+              type=raw,value=latest,enable={{is_default_branch}}
+              type=raw,value=gpu,enable={{is_default_branch}}
+              type=semver,pattern={{version}}
+          - variant: cpu
+            torch_index_url: https://download.pytorch.org/whl/cpu
+            tags: |
+              type=raw,value=cpu,enable={{is_default_branch}}
+              type=semver,pattern={{version}},suffix=-cpu
+    steps:
+      # the images are 8-13 GB, more than the runner has free by default
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: ${{ matrix.tags }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: TORCH_INDEX_URL=${{ matrix.torch_index_url }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
