@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate an image from a text prompt using a locally stored diffusers model."""
+"""Generate images from text prompts using a locally stored diffusers model."""
 
 import argparse
 import os
@@ -18,15 +18,18 @@ def log(message):
 
 
 def parse_args():
-	parser = argparse.ArgumentParser(description='Generate an image from a text prompt.')
-	parser.add_argument('-p', '--prompt', required=True, help='Text describing the image')
+	parser = argparse.ArgumentParser(description='Generate images from text prompts.')
+	source = parser.add_mutually_exclusive_group(required=True)
+	source.add_argument('-p', '--prompt', help='Text describing the image')
+	source.add_argument('-f', '--prompts-file', help='File with one prompt per line, the model is loaded once for all of them')
 	parser.add_argument('-n', '--negative-prompt', help='Text describing what to avoid (ignored when guidance is 0)')
-	parser.add_argument('-o', '--output', default='output.jpg', help='Output file, format given by extension (default: %(default)s)')
+	parser.add_argument('-o', '--output', default='output.jpg', help='Output file, format given by extension. '
+		'With --prompts-file numbered per line, e.g. output-01.jpg (default: %(default)s)')
 	parser.add_argument('--width', type=int, default=512, help='Image width in pixels (default: %(default)s)')
 	parser.add_argument('--height', type=int, default=512, help='Image height in pixels (default: %(default)s)')
 	parser.add_argument('--steps', type=int, default=DEFAULT_STEPS, help='Number of inference steps (default: %(default)s)')
 	parser.add_argument('--guidance', type=float, default=DEFAULT_GUIDANCE, help='Guidance scale (default: %(default)s)')
-	parser.add_argument('--seed', type=int, help='Seed for reproducible results (default: random)')
+	parser.add_argument('--seed', type=int, help='Seed for reproducible results, increased by one per prompt (default: random)')
 	parser.add_argument('--device', choices=['auto', 'cpu', 'cuda'], default='auto', help='Device to run on (default: %(default)s)')
 	return parser.parse_args()
 
@@ -63,52 +66,83 @@ def round_to_multiple(value, multiple=8):
 	return max(multiple, round(value / multiple) * multiple)
 
 
-def main():
-	args = parse_args()
+def read_prompts(path):
+	try:
+		with open(path, encoding='utf-8') as file:
+			prompts = [line.strip() for line in file if line.strip()]
+	except OSError as e:
+		sys.exit(f'Cannot read prompts file: {e}')
+	if not prompts:
+		sys.exit(f'No prompts in {path}')
+	return prompts
 
-	import torch
 
-	# fail before the slow model loading if the result can't be saved
-	output = Path(args.output)
-	output.parent.mkdir(parents=True, exist_ok=True)
-	if not os.access(output if output.exists() else output.parent, os.W_OK):
-		sys.exit(f'Cannot write to {output.resolve()} (uid {os.getuid()}), check ownership of the mounted directory')
+def numbered_paths(output, count):
+	# zero padded so the files sort in prompt order
+	digits = max(2, len(str(count)))
+	return [output.with_name(f'{output.stem}-{i:0{digits}d}{output.suffix}') for i in range(1, count + 1)]
 
-	device = select_device(args.device)
-	seed = args.seed if args.seed is not None else random.randint(0, 2**32 - 1)
-	# models need dimensions divisible by 8, resize afterwards if adjusted
-	width = round_to_multiple(args.width)
-	height = round_to_multiple(args.height)
 
-	log(f'Device: {device}')
-	log(f'Prompt: {args.prompt}')
-	log(f'Size: {args.width}x{args.height}, steps: {args.steps}, guidance: {args.guidance}, seed: {seed}')
-
-	start = time.time()
-	pipe = load_pipeline(device)
-	log(f'Model loaded in {time.time() - start:.1f}s')
-
-	start = time.time()
-	image = pipe(
-		prompt=args.prompt,
-		negative_prompt=args.negative_prompt,
-		width=width,
-		height=height,
-		num_inference_steps=args.steps,
-		guidance_scale=args.guidance,
-		generator=torch.Generator('cpu').manual_seed(seed),
-	).images[0]
-	log(f'Image generated in {time.time() - start:.1f}s')
-
-	if image.size != (args.width, args.height):
+def save_image(image, output, width, height):
+	if image.size != (width, height):
 		from PIL import Image
-		image = image.resize((args.width, args.height), Image.LANCZOS)
+		image = image.resize((width, height), Image.LANCZOS)
 
 	if output.suffix.lower() in ('.jpg', '.jpeg'):
 		image.convert('RGB').save(output, quality=95)
 	else:
 		image.save(output)
-	log(f'Saved: {output}')
+
+
+def main():
+	args = parse_args()
+
+	if args.prompts_file:
+		prompts = read_prompts(args.prompts_file)
+		outputs = numbered_paths(Path(args.output), len(prompts))
+	else:
+		prompts = [args.prompt]
+		outputs = [Path(args.output)]
+
+	import torch
+
+	# fail before the slow model loading if the results can't be saved
+	outputs[0].parent.mkdir(parents=True, exist_ok=True)
+	for output in outputs:
+		if not os.access(output if output.exists() else output.parent, os.W_OK):
+			sys.exit(f'Cannot write to {output.resolve()} (uid {os.getuid()}), check ownership of the mounted directory')
+
+	device = select_device(args.device)
+	# models need dimensions divisible by 8, resize afterwards if adjusted
+	width = round_to_multiple(args.width)
+	height = round_to_multiple(args.height)
+
+	log(f'Device: {device}')
+	log(f'Size: {args.width}x{args.height}, steps: {args.steps}, guidance: {args.guidance}, images: {len(prompts)}')
+
+	start = time.time()
+	pipe = load_pipeline(device)
+	log(f'Model loaded in {time.time() - start:.1f}s')
+
+	for i, (prompt, output) in enumerate(zip(prompts, outputs)):
+		seed = args.seed + i if args.seed is not None else random.randint(0, 2**32 - 1)
+		log(f'Prompt: {prompt}')
+		log(f'Seed: {seed}')
+
+		start = time.time()
+		image = pipe(
+			prompt=prompt,
+			negative_prompt=args.negative_prompt,
+			width=width,
+			height=height,
+			num_inference_steps=args.steps,
+			guidance_scale=args.guidance,
+			generator=torch.Generator('cpu').manual_seed(seed),
+		).images[0]
+		log(f'Image generated in {time.time() - start:.1f}s')
+
+		save_image(image, output, args.width, args.height)
+		log(f'Saved: {output}')
 
 
 if __name__ == '__main__':

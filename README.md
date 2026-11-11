@@ -9,16 +9,26 @@ Based on the model [SDXL-Turbo](https://huggingface.co/stabilityai/sdxl-turbo).
 | `cpu`            | ~8 GB  | CPU only (~16 GB RAM)                      |
 
 An 800x600 image takes about 9 seconds on an RTX 4070 Super and
-on a 8-core CPU about 40 seconds.
+on a 8-core CPU about 40 seconds. Most of that is loading the model, so to create
+several images use `--prompts-file`, which loads it only once.
 
 ## Running
 ```shell
-mkdir output
+mkdir -p output
+
+# single image
+#  GPU accelerated
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator --prompt "A happy unicorn"
+#  CPU only (smaller image size)
 docker run --rm --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator:cpu --prompt "A happy unicorn" --width 800 --height 600
 
 # write to a specific file
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator -p "A red fox" -o fox.png
+
+# multiple images (there is like 90%+ overhead loading the model)
+#  one image per line in output/prompts.txt, saved as animal-01.png, animal-02.png, ...
+printf 'A red fox\nA happy unicorn\nA lonely wolf\n' > output/prompts.txt
+docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator -f prompts.txt -o animal.png
 ```
 
 `--user` makes the generated files owned by you instead of `root`. Create the output directory before running, otherwise Docker creates it owned by `root`.
@@ -28,13 +38,14 @@ GPU usage requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datace
 ### Options
 | Option | Default | Description |
 |---|---|---|
-| `-p`, `--prompt` | (required) | Text describing the image |
-| `-n`, `--negative-prompt` | | Text describing what to avoid (ignored when guidance is 0) |
-| `-o`, `--output` | `output.jpg` | Output file relative to `/data`, format given by extension |
+| `-p`, `--prompt` | | Text describing the image, this or `--prompts-file` is required |
+| `-f`, `--prompts-file` | | File relative to `/data` with one prompt per line, empty lines are skipped |
+| `-n`, `--negative-prompt` | | Text describing what to avoid (ignored when guidance is 0), used for all prompts |
+| `-o`, `--output` | `output.jpg` | Output file relative to `/data`, format given by extension. With `--prompts-file` numbered by line: `output-01.jpg`, `output-02.jpg`, ... (at least two digits) |
 | `--width`, `--height` | `512` | Image size in pixels. SDXL-Turbo works best around 512 |
 | `--steps` | `4` | Number of inference steps (1-4 is enough for SDXL-Turbo) |
 | `--guidance` | `0.0` | Guidance scale (SDXL-Turbo is trained without guidance) |
-| `--seed` | random | Seed for reproducible results |
+| `--seed` | random | Seed for reproducible results, increased by one for each prompt in `--prompts-file` |
 | `--device` | `auto` | `auto`, `cpu` or `cuda` |
 
 ## Building
