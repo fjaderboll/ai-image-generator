@@ -16,17 +16,15 @@ several images use `--prompts-file`, which loads it only once.
 ```shell
 mkdir -p output
 
-# single image
-#  GPU accelerated
+# single image, GPU accelerated
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator --prompt "A happy unicorn"
-#  CPU only (smaller image size)
+# single image, CPU only
 docker run --rm --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator:cpu --prompt "A happy unicorn" --width 800 --height 600
 
 # write to a specific file
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator -p "A red fox" -o fox.png
 
-# multiple images (there is like 90%+ overhead loading the model)
-#  one image per line in output/prompts.txt, saved as animal-01.png, animal-02.png, ...
+# multiple images, one image per line in output/prompts.txt, saved as animal-01.png, animal-02.png, ...
 printf 'A red fox\nA happy unicorn\nA lonely wolf\n' > output/prompts.txt
 docker run --rm --gpus=all --user $(id -u):$(id -g) -v ./output:/data ghcr.io/fjaderboll/ai-image-generator -f prompts.txt -o animal.png
 ```
